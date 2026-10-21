@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Monthly Expense Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='index.css') }}"
+    />
+    <link rel="icon" href="../static/budget.png" />
+  </head>
+  <body>
+    <div class="whole-container">
+      <div class="month-navigation">
+        <label for="monthSelect">Select Month: </label>
+        <select id="monthSelect" onchange="loadSelectedMonthData()">
+          <!-- dynamically populate -->
+        </select>
+      </div>
+
+      <div class="set-budget">
+        <label for="budget">Monthly Budget (₹): </label>
+        <input
+          type="number"
+          required
+          id="budget"
+          placeholder="Enter your Budget"
+        />
+        <button onclick="setBudget()">Set Budget</button>
+      </div>
+
+      <div class="container">
+        <header>
+          <h1>Expense Tracker</h1>
+          <div id="currentMonth"></div>
+        </header>
+
+        <div class="expense-form">
+          <h2>Add/Update Expense</h2>
+          <form id="expenseForm">
+            <div>
+              <label for="amount">Amount (₹)</label>
+              <input
+                type="number"
+                id="amount"
+                placeholder="Enter amount"
+                required
+              />
+            </div>
+            <div>
+              <label for="category">Category</label>
+              <select id="category">
+                <option value="Food">Food</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Transport">Transport</option>
+                <option value="Bills">Bills</option>
+                <option value="Miscellaneous">Miscellaneous</option>
+              </select>
+            </div>
+            <div>
+              <label for="description">Description</label>
+              <input
+                type="text"
+                id="description"
+                placeholder="Enter description"
+                required
+              />
+            </div>
+            <div>
+              <label for="date">Date</label>
+              <input type="date" id="date" required />
+            </div>
+            <button type="submit">Add Expense</button>
+          </form>
+        </div>
+
+        <section class="expense-list">
+          <h2>Recent Expenses</h2>
+          <table id="expenseTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount (₹)</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <div id="budgetSummary"></div>
+
+        <div class="charts-section">
+          <div class="chart-container">
+            <h3>Pie Chart</h3>
+            <canvas
+              id="categoryChart"
+              class="pie-chart"
+              style="width: 40%"
+            ></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Bar Chart</h3>
+            <canvas id="monthlyTrendChart"></canvas>
+          </div>
+        </div>
+
+        <div class="report-controls">
+          <h3>Monthly Report</h3>
+          <div class="action-buttons">
+            <button class="button-34" onclick="viewReport()">
+              View Report
+            </button>
+            <button class="button-33" onclick="downloadReport()">
+              Download PDF
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="toastContainer"
+          aria-live="polite"
+          aria-atomic="true"
+          style="position: fixed; top: 20px; right: 20px; z-index: 1000"
+        >
+          <!-- Toast notifications will be dynamically added here -->
+        </div>
+
+        <div id="reportPreview" class="report-preview"></div>
+      </div>
+    </div>
+
+    <script>
+      const ChartDataLabels = window.ChartDataLabels;
+      let totalExpenses = 0;
+      let budget = 0;
+      let editingRow = null;
+      let historicalData =
+        JSON.parse(localStorage.getItem("historicalData")) || {};
+      let categoryChart = null;
+      let trendChart = null;
+      let currentMonthYear = `${new Date().getFullYear()}-${String(
+        new Date().getMonth() + 1
+      ).padStart(2, "0")}`;
+      console.log("currentmonthyear", currentMonthYear);
+
+      // Initialize on page load
+      document.addEventListener("DOMContentLoaded", function () {
+        populateMonthSelector();
+        loadSelectedMonthData();
+        createCharts();
+      });
+
+      function populateMonthSelector() {
+        const monthSelect = document.getElementById("monthSelect");
+        const currentDate = new Date();
+        const currentYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth();
+
+        for (let i = 0; i < 12; i++) {
+          const date = new Date(currentYear, i);
+          const monthName = date.toLocaleString("default", { month: "long" });
+          const option = document.createElement("option");
+          option.value = monthName; // Use month name as the value
+          option.text = monthName;
+          if (i === currentMonth) {
+            option.selected = true;
+          }
+          monthSelect.appendChild(option);
+        }
+      }
+
+      function loadSelectedMonthData() {
+        const selectedMonthYear = document.getElementById("monthSelect").value;
+        currentMonthYear = selectedMonthYear; // This will now be a month name (e.g., "January")
+        clearForm();
+        loadMonthData(selectedMonthYear);
+        viewReport();
+        updateCharts();
+      }
+
+      function loadMonthData(monthYear) {
+        if (!historicalData[monthYear]) {
+          historicalData[monthYear] = {
+            budget: 0,
+            totalExpenses: 0,
+            expenses: [],
+            categories: {},
+          };
+          localStorage.setItem(
+            "historicalData",
+            JSON.stringify(historicalData)
+          );
+        }
+
+        const monthData = historicalData[monthYear];
+        budget = monthData.budget;
+        totalExpenses = monthData.totalExpenses;
+        document.getElementById("budget").value = budget;
+
+        const tbody = document
+          .getElementById("expenseTable")
+          .getElementsByTagName("tbody")[0];
+        tbody.innerHTML = "";
+
+        monthData.expenses.forEach((expense) => {
+          const row = tbody.insertRow(0);
+          row.innerHTML = `
+      <td>${expense.date}</td>
+      <td>₹${expense.amount.toFixed(2)}</td>
+      <td>${expense.category}</td>
+      <td>${expense.description}</td>
+      <td><button onclick="editExpense(this)" class="edit-button">Edit</button></td>
+    `;
+        });
+        updateBudgetSummary();
+        updateCharts();
+      }
+
+      // Form submission handler
+      document
+        .getElementById("expenseForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+
+          const amount =
+            parseFloat(document.getElementById("amount").value) || 0;
+          const category = document.getElementById("category").value;
+          const description = document.getElementById("description").value;
+          const date = document.getElementById("date").value;
+
+          if (editingRow) {
+            handleExpenseEdit(amount, category, description, date);
+          } else {
+            handleNewExpense(amount, category, description, date);
+          }
+          // updateBudgetSummary();
+          updateCharts();
+          clearForm();
+        });
+
+      function handleNewExpense(amount, category, description, date) {
+        totalExpenses += amount;
+
+        const newExpense = { date, amount, category, description };
+        historicalData[currentMonthYear].totalExpenses = totalExpenses;
+        historicalData[currentMonthYear].expenses.unshift(newExpense);
+        historicalData[currentMonthYear].categories[category] =
+          (historicalData[currentMonthYear].categories[category] || 0) + amount;
+
+        const table = document
+          .getElementById("expenseTable")
+          .getElementsByTagName("tbody")[0];
+        const row = table.insertRow(0);
+        row.innerHTML = `
+      <td>${date}</td>
+      <td>₹${amount.toFixed(2)}</td>
+      <td>${category}</td>
+      <td>${description}</td>
+      <td><button onclick="editExpense(this)" class="edit-button">Edit</button></td>
+    `;
+
+        localStorage.setItem("historicalData", JSON.stringify(historicalData));
+        updateBudgetSummary();
+        clearForm();
+
+        updateCharts();
+      }
+
+      function handleExpenseEdit(amount, category, description, date) {
+        const cells = editingRow.getElementsByTagName("td");
+        const oldAmount = parseFloat(cells[1].innerText.replace("₹", ""));
+        const oldCategory = cells[2].innerText;
+
+        totalExpenses = totalExpenses - oldAmount + amount;
+        historicalData[currentMonthYear].totalExpenses = totalExpenses;
+        historicalData[currentMonthYear].categories[oldCategory] -= oldAmount;
+        historicalData[currentMonthYear].categories[category] =
+          (historicalData[currentMonthYear].categories[category] || 0) + amount;
+
+        const index = Array.from(editingRow.parentNode.children).indexOf(
+          editingRow
+        );
+        historicalData[currentMonthYear].expenses[index] = {
+          date,
+          amount,
+          category,
+          description,
+        };
+
+        cells[0].innerText = date;
+        cells[1].innerText = `₹${amount.toFixed(2)}`;
+        cells[2].innerText = category;
+        cells[3].innerText = description;
+
+        localStorage.setItem("historicalData", JSON.stringify(historicalData));
+        editingRow = null;
+        document.querySelector('button[type="submit"]').textContent =
+          "Add Expense";
+        updateBudgetSummary();
+        clearForm();
+        updateCharts();
+      }
+
+      function setBudget() {
+        budget = parseFloat(document.getElementById("budget").value) || 0;
+        historicalData[currentMonthYear].budget = budget;
+        localStorage.setItem("historicalData", JSON.stringify(historicalData));
+        updateBudgetSummary();
+        updateCharts();
+      }
+
+      function editExpense(button) {
+        editingRow = button.parentElement.parentElement;
+        const cells = editingRow.getElementsByTagName("td");
+
+        document.getElementById("amount").value = parseFloat(
+          cells[1].innerText.replace("₹", "")
+        );
+        document.getElementById("category").value = cells[2].innerText;
+        document.getElementById("description").value = cells[3].innerText;
+        document.getElementById("date").value = cells[0].innerText;
+
+        document.querySelector('button[type="submit"]').textContent =
+          "Update Expense";
+      }
+
+      function clearForm() {
+        document.getElementById("amount").value = "";
+        document.getElementById("category").value = "Food";
+        document.getElementById("description").value = "";
+        document.getElementById("date").value = "";
+      }
+
+      function getPreviousMonthSavings() {
+        const months = Object.keys(historicalData).sort((a, b) => {
+          const monthIndices = {
+            January: 0,
+            February: 1,
+            March: 2,
+            April: 3,
+            May: 4,
+            June: 5,
+            July: 6,
+            August: 7,
+            September: 8,
+            October: 9,
+            November: 10,
+            December: 11,
+          };
+          return monthIndices[a] - monthIndices[b];
+        });
+
+        const currentMonthIndex = months.indexOf(currentMonthYear);
+        if (currentMonthIndex === -1 || currentMonthIndex === 0) {
+          return null; // No previous month data
+        }
+
+        const previousMonth = months[currentMonthIndex - 1];
+        const previousMonthData = historicalData[previousMonth];
+        if (!previousMonthData) {
+          return null; // No data for the previous month
+        }
+
+        return previousMonthData.budget - previousMonthData.totalExpenses;
+      }
+
+      // Function to show toast notifications
+      // Replace your current showToast function with this updated version
+      function showToast(message, type = "info", duration = 10000) {
+        const toastContainer = document.getElementById("toastContainer");
+
+        // Create toast element
+        const toast = document.createElement("div");
+        toast.className = `toast toast-${type}`; // Add the type-based class
+
+        // Create message content
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "toast-message";
+        messageDiv.textContent = message;
+
+        // Create close button
+        const closeButton = document.createElement("button");
+        closeButton.className = "toast-close";
+        closeButton.innerHTML = "×"; // Using × character as close icon
+        closeButton.addEventListener("click", () => {
+          // Stop speaking if speech is in progress
+          window.speechSynthesis.cancel();
+          // Remove the toast
+          toast.remove();
+        });
+
+        // Add elements to toast
+        toast.appendChild(messageDiv);
+        toast.appendChild(closeButton);
+
+        // Add toast to the container
+        toastContainer.appendChild(toast);
+
+        // Speak the message
+        speakMessage(message);
+
+        // Remove toast after the specified duration
+        const timeoutId = setTimeout(() => {
+          toast.remove();
+        }, duration);
+
+        // Store timeout ID on the toast element so it can be cleared if closed manually
+        toast.dataset.timeoutId = timeoutId;
+      }
+
+      function speakMessage(message) {
+        if (window.speechSynthesis) {
+          const utterance = new SpeechSynthesisUtterance(message);
+          utterance.volume = 1; // Volume (0 to 1)
+          utterance.rate = 1.5; // Speed (0.1 to 10)
+          utterance.pitch = 1.5; // Pitch (0 to 2)
+          utterance.lang = "en-US"; // Language
+
+          // Speak the message
+          window.speechSynthesis.speak(utterance);
+        } else {
+          console.warn("Speech synthesis is not supported in this browser.");
+        }
+      }
+
+      // Updated updateBudgetSummary function with toast notifications
+      function updateBudgetSummary() {
+        const remainingBudget = budget - totalExpenses;
+        const budgetSummary = document.getElementById("budgetSummary");
+
+        budgetSummary.innerHTML = `
+    <p>Total Expenses: ₹${totalExpenses.toFixed(2)}</p>
+    <p style="color: ${
+      remainingBudget > 0 ? "green" : remainingBudget === 0 ? "orange" : "red"
+    }">
+      ${
+        remainingBudget > 0
+          ? `You have ₹${remainingBudget.toFixed(2)} remaining in your budget.`
+          : remainingBudget === 0
+          ? "You have used up your entire budget. Be careful!"
+          : `You have exceeded your budget by ₹${Math.abs(
+              remainingBudget
+            ).toFixed(2)}!`
+      }
+    </p>
+  `;
+
+        // Check savings for the current month
+        const currentMonthSavings = budget - totalExpenses;
+
+        // Get previous month's savings
+        const previousMonthSavings = getPreviousMonthSavings();
+
+        // Toast for no savings in the current month
+        if (currentMonthSavings <= 0) {
+          showToast("You have not saved any amount for this month!", "warning");
+        }
+
+        // Compare with previous month's savings
+        if (previousMonthSavings !== null) {
+          if (currentMonthSavings > previousMonthSavings) {
+            showToast(
+              `Great job! Your savings for this month (₹${currentMonthSavings.toFixed(
+                2
+              )}) are higher than last month (₹${previousMonthSavings.toFixed(
+                2
+              )}).`,
+              "success" // Green for success
+            );
+          } else if (currentMonthSavings < previousMonthSavings) {
+            showToast(
+              `Your savings this month (₹${currentMonthSavings.toFixed(
+                2
+              )}) are less than last month's savings (₹${previousMonthSavings.toFixed(
+                2
+              )}). Try to save more next month!`,
+              "warning" // Red for warning
+            );
+          } else if (currentMonthSavings === previousMonthSavings) {
+            showToast(
+              `Your savings this month (₹${currentMonthSavings.toFixed(
+                2
+              )}) are the same as last month's savings (₹${previousMonthSavings.toFixed(
+                2
+              )}). Keep it up!`,
+              "info" // Blue for info
+            );
+          }
+        }
+      }
+
+      // Initialize sample data if localStorage is empty
+      function initializeSampleData() {
+        const currentDate = new Date();
+        const currentMonthName = currentDate.toLocaleString("default", {
+          month: "long",
+        });
+
+        if (!localStorage.getItem("historicalData")) {
+          const sampleData = {
+            [currentMonthName]: {
+              budget: 10000,
+              totalExpenses: 7500,
+              expenses: [
+                {
+                  date: "2024-02-01",
+                  amount: 2000,
+                  category: "Food",
+                  description: "Groceries",
+                },
+                {
+                  date: "2024-02-05",
+                  amount: 1500,
+                  category: "Transport",
+                  description: "Fuel",
+                },
+                {
+                  date: "2024-02-10",
+                  amount: 3000,
+                  category: "Bills",
+                  description: "Electricity",
+                },
+                {
+                  date: "2024-02-15",
+                  amount: 1000,
+                  category: "Entertainment",
+                  description: "Movies",
+                },
+              ],
+              categories: {
+                Food: 2000,
+                Transport: 1500,
+                Bills: 3000,
+                Entertainment: 1000,
+              },
+            },
+          };
+
+          localStorage.setItem("historicalData", JSON.stringify(sampleData));
+          historicalData = sampleData;
+        }
+      }
+
+      // Updated createCharts function with proper data handling
+      function createCharts() {
+        // Initialize sample data if needed
+        initializeSampleData();
+
+        const ctxCategory = document
+          .getElementById("categoryChart")
+          .getContext("2d");
+        if (categoryChart) categoryChart.destroy();
+
+        categoryChart = new Chart(ctxCategory, {
+          type: "doughnut",
+          data: {
+            labels: [], // Will be populated in updateCharts
+            datasets: [
+              {
+                data: [], // Will be populated in updateCharts
+                backgroundColor: [
+                  "rgba(255, 99, 132, 0.8)", // Red for Food
+                  "rgba(54, 162, 235, 0.8)", // Blue for Transport
+                  "rgba(255, 206, 86, 0.8)", // Yellow for Bills
+                  "rgba(75, 192, 192, 0.8)", // Green for Entertainment
+                  "rgba(153, 102, 255, 0.8)", // Purple for Miscellaneous
+                  "rgba(255, 159, 64, 0.8)", // Orange for Savings
+                ],
+                borderColor: [
+                  "rgba(255, 99, 132, 1)",
+                  "rgba(54, 162, 235, 1)",
+                  "rgba(255, 206, 86, 1)",
+                  "rgba(75, 192, 192, 1)",
+                  "rgba(153, 102, 255, 1)",
+                  "rgba(255, 159, 64, 1)",
+                ],
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true, // Set to false if you want to ignore aspect ratio
+            aspectRatio: 1,
+            plugins: {
+              title: {
+                display: true,
+                text: `Expense Distribution for ${currentMonthYear}`,
+                font: {
+                  size: 16,
+                },
+              },
+              legend: {
+                position: "left",
+                labels: {
+                  color: "#333",
+                },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    const label = context.label || "";
+                    const value = context.raw || 0;
+                    const total = context.dataset.data.reduce(
+                      (a, b) => a + b,
+                      0
+                    );
+                    const percentage = ((value / total) * 100).toFixed(1);
+                    return `${label}: ₹${value.toFixed(2)} (${percentage}%)`;
+                  },
+                },
+              },
+              // Add datalabels plugin configuration
+              datalabels: {
+                display: true,
+                color: "#333",
+                font: {
+                  weight: "bold",
+                  size: 11,
+                },
+                textAlign: "center",
+                formatter: function (value, context) {
+                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                  const percentage = ((value / total) * 100).toFixed(1);
+                  const label = context.chart.data.labels[context.dataIndex];
+                  return `${label}\n₹${value.toFixed(0)}\n${percentage}%`;
+                },
+                anchor: "center",
+                align: "center",
+                offset: 0,
+                // Only show labels for segments that are at least 5% of the total
+                display: function (context) {
+                  const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                  const value = context.dataset.data[context.dataIndex];
+                  return (value / total) * 100 >= 5; // Only show for segments >= 5%
+                },
+              },
+            },
+          },
+          plugins: [ChartDataLabels], // Add the DataLabels plugin
+        });
+        // Similarly update the trend chart
+        const ctxTrend = document
+          .getElementById("monthlyTrendChart")
+          .getContext("2d");
+        if (trendChart) trendChart.destroy();
+
+        trendChart = new Chart(ctxTrend, {
+          type: "bar",
+          data: {
+            labels: [], // Will be populated in updateCharts
+            datasets: [
+              {
+                label: "Expenses",
+                data: [], // Will be populated in updateCharts
+                backgroundColor: "rgba(255, 99, 132, 0.8)",
+                borderColor: "rgba(255, 99, 132, 1)",
+                borderWidth: 1,
+              },
+              {
+                label: "Savings",
+                data: [], // Will be populated in updateCharts
+                backgroundColor: "rgba(54, 162, 235, 0.8)",
+                borderColor: "rgba(54, 162, 235, 1)",
+                borderWidth: 1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              title: {
+                display: true,
+                text: `Monthly Trend for ${currentMonthYear}`,
+                font: {
+                  size: 16,
+                },
+              },
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (value) {
+                    return "₹" + value;
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        updateCharts();
+      }
+
+      // Replace the updateCharts function with this updated version:
+      function updateCharts() {
+        const monthData = historicalData[currentMonthYear];
+
+        if (!monthData) {
+          console.error("No data available for", currentMonthYear);
+          return;
+        }
+
+        try {
+          // Update Category Chart
+          const categories = { ...monthData.categories };
+          const savings = monthData.budget - monthData.totalExpenses;
+          if (savings > 0) {
+            categories.Savings = savings;
+          }
+
+          const labels = Object.keys(categories);
+          const data = Object.values(categories);
+
+          // Update the title of the category chart
+          categoryChart.options.plugins.title = {
+            display: true,
+            text: `Expense Distribution for ${currentMonthYear}`,
+            font: {
+              size: 16,
+            },
+          };
+
+          categoryChart.data.labels = labels;
+          categoryChart.data.datasets[0].data = data;
+          categoryChart.update();
+
+          // Update Trend Chart
+          // Define months in chronological order
+          const allMonths = [
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+          ];
+
+          // Filter to only include months that have data
+          const months = allMonths.filter((month) => historicalData[month]);
+
+          // Get expense and savings data for each month
+          const expenses = months.map(
+            (month) => historicalData[month].totalExpenses
+          );
+          const savingsData = months.map((month) => {
+            const mData = historicalData[month];
+            return Math.max(0, mData.budget - mData.totalExpenses);
+          });
+
+          // Update the title of the trend chart
+          trendChart.options.plugins.title = {
+            display: true,
+            text: `Monthly Trend for ${new Date().getFullYear()}`,
+            font: {
+              size: 16,
+            },
+          };
+
+          trendChart.data.labels = months; // Use month names directly
+          trendChart.data.datasets[0].data = expenses;
+          trendChart.data.datasets[1].data = savingsData;
+          trendChart.update();
+        } catch (error) {
+          console.error("Error updating charts:", error);
+        }
+      }
+
+      function generateMonthlyReport(monthYear) {
+        const monthData = historicalData[monthYear];
+        if (!monthData) return null;
+
+        const categoryTotals = monthData.categories;
+        const totalExpense = monthData.totalExpenses;
+        const budget = monthData.budget;
+        const savings = budget - totalExpense;
+        const savingsPercentage = ((savings / budget) * 100).toFixed(2);
+
+        return {
+          monthName: monthYear, // Use the month name directly
+          year: new Date().getFullYear(), // Add year if needed
+          budget: budget.toFixed(2),
+          totalExpense: totalExpense.toFixed(2),
+          savings: savings.toFixed(2),
+          savingsPercentage,
+          categories: categoryTotals,
+          expenses: monthData.expenses,
+        };
+      }
+      function viewReport() {
+        const report = generateMonthlyReport(currentMonthYear);
+        const reportPreview = document.getElementById("reportPreview");
+
+        if (!report) {
+          reportPreview.innerHTML =
+            "<p>No data available for the selected month</p>";
+          reportPreview.style.display = "block";
+          return;
+        }
+
+        let html = `
+        
+          <h3>Monthly Expense Report - ${report.monthName} ${report.year}</h3>
+          <div class="report-summary">
+            <p><strong>Monthly Budget:</strong> ₹${report.budget}</p>
+            <p><strong>Total Expenses:</strong> ₹${report.totalExpense}</p>
+            <p><strong>Savings:</strong> ₹${report.savings} (${report.savingsPercentage}%)</p>
+          </div>
+          <h4>Expense Categories</h4>
+          <table class="table-data">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th>Amount (₹)</th>
+                <th>Percentage</th>
+              </tr>
+            </thead>
+            <tbody>
+             
+        `;
+
+        Object.entries(report.categories).forEach(([category, amount]) => {
+          const percentage = ((amount / report.totalExpense) * 100).toFixed(2);
+          html += `
+            <tr>
+              <td>${category}</td>
+              <td>₹${amount.toFixed(2)}</td>
+              <td>${percentage}%</td>
+            </tr>
+          `;
+        });
+
+        html += `
+            </tbody>
+          </table>
+          <h4>Detailed Expenses</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Amount (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        report.expenses.forEach((expense) => {
+          html += `
+            <tr>
+              <td>${expense.date}</td>
+              <td>${expense.category}</td>
+              <td>${expense.description}</td>
+              <td>₹${expense.amount.toFixed(2)}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+            </tbody>
+          </table>
+        `;
+
+        reportPreview.innerHTML = html;
+        reportPreview.style.display = "block";
+      }
+
+      function downloadReport() {
+        const report = generateMonthlyReport(currentMonthYear);
+
+        if (!report) {
+          alert("No data available for the selected month");
+          return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        let yOffset = 20;
+        const margin = 15;
+
+        // Title
+        doc.setFontSize(16);
+        doc.text(
+          `Monthly Expense Report - ${report.monthName} ${report.year}`,
+          margin,
+          yOffset
+        );
+        yOffset += 20;
+
+        // Summary Section
+        doc.setFontSize(12);
+        doc.text(`Monthly Budget: ₹${report.budget}`, margin, yOffset);
+        yOffset += 7;
+        doc.text(`Total Expenses: ₹${report.totalExpense}`, margin, yOffset);
+        yOffset += 7;
+        doc.text(
+          `Savings: ₹${report.savings} (${report.savingsPercentage}%)`,
+          margin,
+          yOffset
+        );
+        yOffset += 15;
+
+        // Category Breakdown
+        doc.setFontSize(14);
+        doc.text("Category Breakdown", margin, yOffset);
+        yOffset += 10;
+
+        // Category Table
+        const categoryData = Object.entries(report.categories).map(
+          ([category, amount]) => [
+            category,
+            `₹${amount.toFixed(2)}`,
+            `${((amount / report.totalExpense) * 100).toFixed(2)}%`,
+          ]
+        );
+
+        doc.autoTable({
+          startY: yOffset,
+          head: [["Category", "Amount", "Percentage"]],
+          body: categoryData,
+          margin: { left: margin },
+          theme: "grid",
+        });
+
+        // Get the final Y position after the first table
+        yOffset = doc.previousAutoTable.finalY + 15;
+
+        // Detailed Expenses Section
+        doc.setFontSize(14);
+        doc.text("Detailed Expenses", margin, yOffset);
+        yOffset += 10;
+
+        // Expenses Table
+        const expenseData = report.expenses.map((expense) => [
+          expense.date,
+          expense.category,
+          expense.description,
+          `₹${expense.amount.toFixed(2)}`,
+        ]);
+
+        doc.autoTable({
+          startY: yOffset,
+          head: [["Date", "Category", "Description", "Amount"]],
+          body: expenseData,
+          margin: { left: margin },
+          theme: "grid",
+          styles: { overflow: "linebreak" },
+          columnStyles: {
+            2: { cellWidth: "auto" },
+          },
+        });
+
+        // Save PDF
+        doc.save(
+          `expense-report-${report.monthName.toLowerCase()}-${report.year}.pdf`
+        );
+      }
+    </script>
+  </body>
+</html>

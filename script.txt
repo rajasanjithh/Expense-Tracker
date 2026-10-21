@@ -1,0 +1,205 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Expense Tracker</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='index.css') }}"
+    />
+  </head>
+  <body>
+    <div class="whole-container">
+      <div class="set-budget">
+        <label for="budget">Monthly Budget (₹): </label>
+        <input
+          type="number"
+          required
+          id="budget"
+          placeholder="Enter your Budget"
+        />
+        <button onclick="setBudget()">Set Budget</button>
+      </div>
+      <div class="container">
+        <header>
+          <h1>Expense Tracker</h1>
+        </header>
+
+        <div class="expense-form">
+          <h2>Add/Update Expense</h2>
+          <form id="expenseForm">
+            <div>
+              <label for="amount">Amount (₹)</label>
+              <input
+                type="number"
+                id="amount"
+                placeholder="Enter amount"
+                required
+              />
+            </div>
+            <div>
+              <label for="category">Category</label>
+              <select id="category">
+                <option value="Food">Food</option>
+                <option value="Entertainment">Entertainment</option>
+                <option value="Transport">Transport</option>
+                <option value="Bills">Bills</option>
+                <option value="Miscellaneous">Miscellaneous</option>
+              </select>
+            </div>
+            <div>
+              <label for="description">Description</label>
+              <input
+                type="text"
+                id="description"
+                placeholder="Enter description"
+                required
+              />
+            </div>
+            <div>
+              <label for="date">Date</label>
+              <input type="date" id="date" required />
+            </div>
+            <button type="submit">Add Expense</button>
+          </form>
+        </div>
+
+        <section class="expense-list">
+          <h2>Recent Expenses</h2>
+          <table id="expenseTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Amount (₹)</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+
+        <div id="budgetSummary"></div>
+      </div>
+    </div>
+
+    <script>
+      let totalExpenses = 0;
+      let budget = 0;
+      let editingRow = null;
+
+      function setBudget() {
+        budget = parseFloat(document.getElementById("budget").value) || 0;
+        updateBudgetSummary();
+      }
+
+      document
+        .getElementById("expenseForm")
+        .addEventListener("submit", function (event) {
+          event.preventDefault();
+
+          const amount =
+            parseFloat(document.getElementById("amount").value) || 0;
+          const category = document.getElementById("category").value;
+          const description = document.getElementById("description").value;
+          const date = document.getElementById("date").value;
+
+          if (editingRow) {
+            // If editing an existing expense
+            const cells = editingRow.getElementsByTagName("td");
+
+            totalExpenses -= parseFloat(cells[1].innerText.replace("₹", ""));
+            totalExpenses += amount;
+
+            cells[0].innerText = date;
+            cells[1].innerText = `₹${amount.toFixed(2)}`;
+            cells[2].innerText = category;
+            cells[3].innerText = description;
+
+            // Clear the editing state
+            editingRow = null;
+            document.querySelector("button[type='submit']").textContent =
+              "Add Expense";
+          } else {
+            // If adding a new expense
+            totalExpenses += amount;
+
+            const table = document
+              .getElementById("expenseTable")
+              .getElementsByTagName("tbody")[0];
+            const row = table.insertRow();
+
+            row.innerHTML = `
+              <td>${date}</td>
+              <td>₹${amount.toFixed(2)}</td>
+              <td>${category}</td>
+              <td>${description}</td>
+              <td><button onclick="editExpense(this)" class="edit-button">Edit</button></td>
+            `;
+          }
+
+          updateBudgetSummary();
+          clearForm();
+        });
+
+      function editExpense(button) {
+        editingRow = button.parentElement.parentElement;
+
+        const cells = editingRow.getElementsByTagName("td");
+
+        document.getElementById("amount").value = parseFloat(
+          cells[1].innerText.replace("₹", "")
+        );
+        document.getElementById("category").value = cells[2].innerText;
+        document.getElementById("description").value = cells[3].innerText;
+        document.getElementById("date").value = cells[0].innerText;
+
+        // Change button text to "Update Expense"
+        document.querySelector("button[type='submit']").textContent =
+          "Update Expense";
+      }
+
+      function clearForm() {
+        document.getElementById("amount").value = "";
+        document.getElementById("category").value = "Food";
+        document.getElementById("description").value = "";
+
+        document.getElementById("date").value = "";
+      }
+
+      function updateBudgetSummary() {
+        const remainingBudget = budget - totalExpenses;
+        const budgetSummary = document.getElementById("budgetSummary");
+
+        budgetSummary.innerHTML = "";
+
+        const totalExpensesText = document.createElement("p");
+        totalExpensesText.textContent = `Total Expenses: ₹${totalExpenses.toFixed(
+          2
+        )}`;
+
+        const remainingBudgetText = document.createElement("p");
+
+        if (remainingBudget > 0) {
+          remainingBudgetText.textContent = `You have ₹${remainingBudget.toFixed(
+            2
+          )} remaining in your budget.`;
+          remainingBudgetText.style.color = "green";
+        } else if (remainingBudget === 0) {
+          remainingBudgetText.textContent = `You have used up your entire budget. Be careful!`;
+          remainingBudgetText.style.color = "orange";
+        } else {
+          remainingBudgetText.textContent = `You have exceeded your budget by ₹${Math.abs(
+            remainingBudget
+          ).toFixed(2)}!`;
+          remainingBudgetText.style.color = "red";
+        }
+
+        budgetSummary.appendChild(totalExpensesText);
+        budgetSummary.appendChild(remainingBudgetText);
+      }
+    </script>
+  </body>
+</html> -->
